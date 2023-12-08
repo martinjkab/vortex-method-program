@@ -1,0 +1,164 @@
+#version 460 core
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+struct Vortex{
+    vec4 position;
+    vec4 normal;
+    vec4 vorticity;
+    vec4 lifetime;
+};
+
+layout(std430, binding=2) buffer vorticies_data{
+    Vortex vorticies[];
+};
+
+
+layout(location = 0) uniform float dt;
+layout(location = 1) uniform vec3 random_vector;
+layout(location = 2) uniform uint mirror_number;
+layout(location = 3) uniform float min_lifetime;
+layout(location = 4) uniform float max_lifetime;
+layout(location = 5) uniform float min_vorticity;
+layout(location = 6) uniform float max_vorticity;
+
+
+const float max_int = pow(2, 32) - 1;
+
+const uint Mirror = 1;
+const uint NonMirror = 2;
+
+uint getType(uint index);
+float random(vec2 st);
+vec3 random_inside_unit_sphere(vec2 seed, vec2 offset);
+vec3 random_on_unit_sphere(vec2 seed, vec2 offset);
+void reset(uint index);
+vec3 mirror_position(vec3 p, vec3 pointOnPlane, vec3 normal);
+vec3 mirror_direction(vec3 d, vec3 normal);
+void update_non_mirror(uint index);
+void update_mirror(uint index);
+vec3 getNewPosition(vec3 otherPosition, float dist, vec3 diff, vec3 vortexPosition, vec3 otherVorticity);
+vec3 getNewVorticity(vec3 otherVorticy, float dist, vec3 vortexVorticity);
+vec3 getVelocity(float dist, vec3 diff, vec3 otherVorticity);
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+
+    uint type = getType(index);
+    if(type == NonMirror){
+        update_non_mirror(index);
+    }else{
+        update_mirror(index);
+    }
+
+    Vortex vortex = vorticies[index];
+    
+
+    for (int i = 0; i < vorticies.length(); i++) {
+        if(i == index ){
+            continue;
+        }
+        Vortex other = vorticies[i];
+        vec3 diff = other.position.xyz - vortex.position.xyz;
+        float dist = length(diff);
+        if(dist < 0.0001f){
+            continue;
+        }
+        vortex.position = vec4(getNewPosition(other.position.xyz, dist, diff, vortex.position.xyz, other.vorticity.xyz), 1);
+        vortex.vorticity = vec4(getNewVorticity(other.vorticity.xyz, dist, vortex.vorticity.xyz), 1);
+    }
+    vorticies[index] = vortex;
+}
+
+uint getType(uint index){
+    const int divider = int(vorticies.length() / int(mirror_number + 1u));
+    if(index < divider){
+        return NonMirror;
+    }
+    return Mirror;
+}
+
+float random(vec2 st) {
+    return fract(sin(dot(st.xy,
+                         vec2(12.9898,78.233)))*
+        43758.5453123);
+}
+
+vec3 random_inside_unit_sphere(vec2 seed, vec2 offset){
+    return random_on_unit_sphere(seed,offset) * random(seed + offset);
+}
+
+vec3 random_on_unit_sphere(vec2 seed, vec2 offset){
+    float phi = random(seed) * 2.0f * 3.1415926535897932384626433832795f;
+    float z = random(seed + offset) * 2.0f - 1.0f;
+    float sqrt_1_z = sqrt(1.0f - z * z);
+    float x = sin(phi) * sqrt_1_z;
+    float y = cos(phi) * sqrt_1_z;
+    return vec3(x, y, z);
+}
+
+void reset(uint index){
+    vec4 particle_position = vorticies[index].position;
+    vec3 random_pos = random_inside_unit_sphere(particle_position.xy, particle_position.yz);
+    vec3 random_vorticity = random_inside_unit_sphere(particle_position.yz, particle_position.xy) * (max_vorticity - min_vorticity) + min_vorticity;
+    float random_lifetime = random(particle_position.yz) * (max_lifetime - min_lifetime) + min_lifetime;
+    vorticies[index].position = vec4(random_pos, 1.0f);
+    vorticies[index].vorticity = vec4(random_vorticity, 1.0f);
+    vorticies[index].lifetime.x = vorticies[index].lifetime.y;
+    vorticies[index].lifetime.y = random_lifetime;
+}
+
+vec3 mirror_position(vec3 p, vec3 pointOnPlane, vec3 normal) {
+    return p - 2.0 * dot(p - pointOnPlane, normal) * normal;
+}
+
+vec3 mirror_direction(vec3 d, vec3 normal) {
+    return d - 2.0 * dot(d, normal) * normal;
+}
+
+void update_non_mirror(uint index){
+    vorticies[index].lifetime.x -= dt;
+    if(vorticies[index].lifetime.x <= 0.0f){
+         reset(index);
+    }
+}
+
+void update_mirror(uint index){
+    uint number_of_non_mirror = vorticies.length() / (mirror_number + 1);
+    uint mirror_index = index % number_of_non_mirror;
+    Vortex mirror_vortex = vorticies[mirror_index];
+    vec3 p = mirror_vortex.position.xyz;
+    vec3 random_on_sphere = random_on_unit_sphere(vec2(index, index)+ random_vector.xy, vec2(index, index)+ random_vector.xz);
+    vec3 mirror_plane_normal = normalize(random_on_sphere - p);
+    mirror_vortex.position = vec4(mirror_position(p, random_on_sphere, mirror_plane_normal), 1.0f);
+    mirror_vortex.vorticity = vec4(mirror_direction(mirror_vortex.vorticity.xyz, mirror_plane_normal), 1.0f);
+    vorticies[index] = mirror_vortex;
+}
+
+vec3 getVelocity(float dist, vec3 diff, vec3 otherVorticity){
+    return cross(otherVorticity, diff / (dist * dist * dist));
+}
+
+vec3 getNewPosition(vec3 otherPosition, float dist, vec3 diff, vec3 vortexPosition, vec3 otherVorticity){
+    vec3 velocity = getVelocity(dist, diff, otherVorticity);
+    vec3 newPosition = vortexPosition + velocity * dt * 0.05f;
+    vec3 newDiff = normalize(newPosition.xyz - otherPosition) * dist;
+    return otherPosition + newDiff;
+}
+
+vec3 getNewVorticity(vec3 otherVorticy, float dist, vec3 vortexVorticity){
+        vec3 newVorticity = (otherVorticy / (dist * dist)) * dt * 0.05f;
+        float angle = length(newVorticity);
+        if(angle < 0.0001f){
+            return vortexVorticity;
+        }
+        vec3 notNormalizedTangent = cross(vortexVorticity, newVorticity);
+        if(notNormalizedTangent == vec3(0.0f, 0.0f, 0.0f)){
+            return vortexVorticity;
+        }
+        vec3 tangent = normalize(notNormalizedTangent);
+        float parallelComponent = dot(vortexVorticity, normalize(otherVorticy));
+        vec3 binormal = normalize(cross(tangent, otherVorticy));
+        float perpendicularComponent = dot(vortexVorticity, binormal);
+        return (normalize(otherVorticy) * parallelComponent) + (tangent * sin(-angle) * perpendicularComponent) + (binormal * cos(angle) * perpendicularComponent);
+}

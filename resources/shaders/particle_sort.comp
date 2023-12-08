@@ -1,0 +1,32 @@
+#version 460 core
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct Particle{
+    vec4 position;
+    vec4 lifetime;
+    vec4 velocity;
+};
+
+layout(std430, binding=1) buffer particles_data{
+    Particle particles[];
+};
+
+layout(location = 0) uniform mat4 VP;
+
+void main() {
+    uint left_index = gl_GlobalInvocationID.x * 2;
+    uint right_index = left_index + 1;
+    Particle left_particle = particles[left_index];
+    Particle right_particle = particles[right_index];
+    vec4 left_position = particles[left_index].position * VP;
+    vec4 right_position = particles[right_index].position * VP;
+    if(left_position.z <= right_position.z){
+        return;
+    }
+    Particle temp = left_particle;
+    particles[left_index] = right_particle;
+    particles[right_index] = temp;
+}
+
+

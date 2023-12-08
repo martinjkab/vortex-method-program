@@ -1,0 +1,118 @@
+#version 460 core
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct Particle{
+    vec4 position;
+    vec4 lifetime;
+    vec4 velocity;
+};
+
+struct Vortex{
+    vec4 position;
+    vec4 normal;
+    vec4 vorticity;
+    vec4 lifetime;
+};
+
+layout(std430, binding=1) buffer particles_data{
+    Particle particles[];
+};
+
+layout(std430, binding=2) buffer vorticies_data{
+    Vortex vorticies[];
+};
+
+layout(std430, binding=10) buffer boundary_vorticies_data{
+    Vortex boundary_vorticies[];
+};
+
+struct BoundaryInfo{
+    uint current_index;
+    uint current_count;
+    uint count;
+};
+
+layout(std430, binding=50) buffer boundary_info_data{
+    BoundaryInfo info;
+};
+
+layout(location = 0) uniform float dt;
+layout(location = 1) uniform uvec3 random_vector;
+layout(location = 2) uniform bool resetting_enabled;
+layout(location = 3) uniform float min_lifetime;
+layout(location = 4) uniform float max_lifetime;
+
+const float max_int = pow(2, 32) - 1;
+
+vec3 get_velocity(vec4 a, Vortex b);
+
+float random (vec2 st) {
+    return fract(sin(dot(st.xy,
+                         vec2(12.9898,78.233)))*
+        43758.5453123);
+}
+
+
+vec3 random_inside_unit_sphere(vec2 seed, vec2 offset){
+    float theta = random(seed) * 2.0f * 3.1415926535897932384626433832795f;
+    float phi = random(seed + offset) * 3.1415926535897932384626433832795f;
+    float x = sin(phi) * cos(theta);
+    float y = sin(phi) * sin(theta);
+    float z = cos(phi);
+    return vec3(x, y, z) * random(seed + offset + vec2(1.0f, 1.0f));
+}
+
+void reset(uint particle_index){
+    vec4 particle_position = particles[particle_index].position;
+    vec3 random_pos = random_inside_unit_sphere(particle_position.xy, particle_position.yz);
+    particles[particle_index].position = vec4(random_pos, 1.0f);
+    float new_lifetime = random(particle_position.xy) * (max_lifetime - min_lifetime) + min_lifetime;
+    particles[particle_index].lifetime.y = new_lifetime;
+    particles[particle_index].lifetime.x = new_lifetime;
+}
+
+vec4 get_new_position(vec4 particle_position, uint particle_index, Vortex vortex){
+    vec3 diff = vortex.position.xyz - particle_position.xyz;
+    float distance = length(diff);
+    if(resetting_enabled && distance < 0.01f){
+        reset(particle_index);
+        return particle_position;
+    }
+    vec3 velocity = get_velocity(particle_position, vortex);
+    vec4 newPosition = particle_position + vec4(velocity, 0) * dt * 0.05f;
+    vec3 newDiff = normalize(newPosition.xyz - vortex.position.xyz) * distance;
+    return vec4(vortex.position.xyz + newDiff, 1);
+}
+
+void main() {
+    uint particle_index = gl_GlobalInvocationID.x;
+    
+    if(resetting_enabled){
+        particles[particle_index].lifetime.x -= dt;
+        if(particles[particle_index].lifetime.x <= 0.0f){
+            reset(particle_index);
+            return;
+        }
+    }
+
+    vec4 particle_position = particles[particle_index].position;
+
+    for (int i = 0; i < vorticies.length(); i++) {
+        Vortex vortex = vorticies[i];
+        particle_position = get_new_position(particle_position, particle_index, vortex);
+    }
+
+    uint offset = info.current_index * info.current_count;
+
+    for(uint i = offset; i < offset + info.current_count; i++){
+        Vortex vortex = boundary_vorticies[i];
+        particle_position = get_new_position(particle_position, particle_index, vortex);
+    }
+    
+    particles[particle_index].position = particle_position;
+    vec4 compVelocity = particle_position - particles[particle_index].position;
+    particles[particle_index].velocity = compVelocity;
+}
+
+$get_velocity

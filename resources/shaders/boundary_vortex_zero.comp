@@ -1,0 +1,41 @@
+#version 460 core
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+struct Vortex{
+    vec4 position;
+    vec4 normal;
+    vec4 vorticity;
+    vec4 lifetime;
+};
+
+layout(std430, binding=2) buffer vorticies_data{
+    Vortex vorticies[];
+};
+
+layout(std430, binding=10) buffer boundary_vorticies_data{
+    Vortex boundary_vorticies[];
+};
+
+layout(std430, binding=30) buffer errors_data{
+    vec4 errors[];
+};
+
+struct BoundaryInfo{
+    uint current_index;
+    uint current_count;
+    uint count;
+};
+
+layout(std430, binding=50) buffer boundary_info_data{
+    BoundaryInfo info;
+};
+
+
+layout(location = 0) uniform float dt;
+
+void main() {
+    uint offset = info.current_index * info.current_count;
+    uint index = offset + gl_GlobalInvocationID.x;
+    boundary_vorticies[index].vorticity = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+}

@@ -1,0 +1,21 @@
+#version 460 core
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+struct BoundaryInfo{
+    uint current_index;
+    uint current_count;
+    uint count;
+};
+
+layout(std430, binding=50) buffer boundary_info_data{
+    BoundaryInfo info;
+};
+
+layout(location = 0) uniform float dt;
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+
+    info.current_index = (info.current_index + 1) % info.count;
+}

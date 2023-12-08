@@ -1,0 +1,56 @@
+#version 460 core
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct Vortex{
+    vec4 position;
+    vec4 normal;
+    vec4 vorticity;
+    vec4 lifetime;
+};
+
+struct Cube{
+    vec4 position;
+    vec4 velocity;
+    vec4 color;
+};
+
+layout(std430, binding=2) buffer vorticies_data{
+    Vortex vorticies[];
+};
+
+layout(std430, binding=3) buffer cube_data{
+    Cube cube;
+};
+
+layout(location = 0) uniform float dt;
+layout(location = 1) uniform float offset;
+layout(location = 2) uniform float radius;
+layout(location = 3) uniform vec3 mouseRay;
+
+float random(vec2 st) {
+    return sin(dot(st.xy,
+                         vec2(12.9898,78.233)))*
+        43758.5453123;
+}
+
+vec3 random3(vec2 st){
+    return vec3(random(st),
+                random(st + vec2(1.0, 0.0)),
+                random(st + vec2(0.0, 1.0)));
+}
+
+void main() {
+    // cube.position.xyz +=  cube.velocity.xyz * dt;
+    // vec3 center = cube.position.xyz - cube.velocity.xyz * dt - offset * normalize(cube.velocity.xyz);
+
+    // for(int i = 0; i < vorticies.length(); i++){
+    //     vec3 random_vector = random3(cube.position.xy * dt * float(i));
+    //     vec3 perp = normalize(cross(cube.velocity.xyz, random_vector)) * radius;
+    //     vec3 position = center + perp;
+    //     Vortex vortex = vorticies[i];
+    //     vortex.position.xyz = position;
+    //     vortex.vorticity.xyz = cube.velocity.xyz;
+    //     vorticies[i] = vortex;
+    // }
+}
